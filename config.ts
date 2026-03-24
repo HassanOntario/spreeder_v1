@@ -17,6 +17,20 @@ export const MIN_WPM = 100;
 export const MAX_WPM = 600;
 export const WPM_STEP = 25;       // Step size for WPM adjustment buttons
 
+// ─── Dynamic delay tuning ─────────────────────────────────────────────
+// Words with more characters than this get extra display time so the
+// reader can absorb them on a narrow mobile screen.
+export const LONG_WORD_THRESHOLD = 8;     // characters
+
+// If the viewport (screen width) is below this many points, every word
+// gets a readability boost because scaled-down text is harder to parse.
+export const NARROW_VIEWPORT_PX = 380;    // points (px on web)
+
+// How much extra time to add when a condition is met.
+// The boosts are additive: a long word on a narrow screen gets both.
+export const LONG_WORD_DELAY_BOOST = 0.40;   // +40 %
+export const NARROW_VP_DELAY_BOOST = 0.25;   // +25 %
+
 // ─── Theme colours (warm book aesthetic) ──────────────────────────────
 export const COLORS = {
   background: "#f5f1e6",    // Soft beige / parchment
@@ -27,4 +41,24 @@ export const COLORS = {
   accentPressed: "#96703e", // Darker gold for pressed state
   error: "#c0392b",         // Soft red for errors
   white: "#ffffff",
+  // Quiz-specific
+  correct: "#27ae60",       // Green for correct answers
+  incorrect: "#c0392b",     // Red for incorrect answers
+  overlay: "rgba(44, 36, 23, 0.55)",  // Semi-transparent dark overlay for blur
+};
+
+// ─── Quiz strategy definitions ────────────────────────────────────────
+export type QuizStrategy = "micro" | "segmented" | "postgame";
+
+/** How many words between quizzes for each strategy. */
+export const STRATEGY_INTERVALS: Record<QuizStrategy, number> = {
+  micro: 100,       // Quiz every 100 words
+  segmented: 500,   // Quiz every 500 words
+  postgame: Infinity, // Quiz only at the very end
+};
+
+export const STRATEGY_LABELS: Record<QuizStrategy, { title: string; desc: string }> = {
+  micro:     { title: "Micro",     desc: "Quiz every 100 words" },
+  segmented: { title: "Segmented", desc: "Quiz every 500 words" },
+  postgame:  { title: "Post-Game", desc: "Quiz at the end" },
 };
