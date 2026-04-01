@@ -11,6 +11,8 @@ Run with:
 
 import os
 import json
+import re
+import logging
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -18,6 +20,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 from utils.pdf_parser import extract_words_from_pdf
+
+# ── Logging ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(name)-14s  %(levelname)-7s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("spreeder")
 
 # ── Load .env file (so GEMINI_API_KEY is available) ────────────────────
 load_dotenv()
@@ -62,7 +72,20 @@ async def upload_pdf(file: UploadFile = File(...)):
     Accept a PDF upload, extract text, and return words.
 
     Returns:
-        { "words": ["Hello", "world", "..."], "word_count": 2 }
+        {
+          "words": ["Hello", "world", "..."],
+          "word_count": 2,
+          "diagnostics": {
+            "page_count": 3,
+            "extraction_method": "text" | "ocr" | "hybrid",
+            "text_pages": [1, 2],
+            "ocr_pages": [3],
+            "failed_pages": [],
+            "avg_ocr_confidence": 87.5,
+            "processing_time_ms": 420.1,
+            "warnings": []
+          }
+        }
     """
 
     # Validate file type
@@ -86,17 +109,34 @@ async def upload_pdf(file: UploadFile = File(...)):
         if not pdf_bytes:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-        words = extract_words_from_pdf(pdf_bytes)
+        result = extract_words_from_pdf(pdf_bytes)
+
+        logger.info(
+            "Upload OK: %d words, method=%s, pages=%d, time=%.0fms",
+            result.word_count, result.extraction_method,
+            result.page_count, result.processing_time_ms,
+        )
 
         return {
-            "words": words,
-            "word_count": len(words),
+            "words": result.words,
+            "word_count": result.word_count,
+            "diagnostics": {
+                "page_count": result.page_count,
+                "extraction_method": result.extraction_method,
+                "text_pages": result.text_pages,
+                "ocr_pages": result.ocr_pages,
+                "failed_pages": result.failed_pages,
+                "avg_ocr_confidence": round(result.avg_ocr_confidence, 1),
+                "processing_time_ms": round(result.processing_time_ms, 1),
+                "warnings": result.warnings,
+            },
         }
 
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
+        logger.exception("PDF processing failed")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process PDF: {str(e)}",
@@ -154,21 +194,58 @@ async def generate_quiz(body: QuizRequest):
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.0,
-                max_output_tokens=500,
+                max_output_tokens=1024,
             ),
         )
 
-        raw = response.text or ""
+        raw = ""
+        # response.text can raise ValueError if the model returned no
+        # valid candidates (safety block, empty thinking response, etc.)
+        try:
+            raw = response.text or ""
+        except ValueError:
+            # Fallback: try to extract text from parts directly
+            if response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "text") and part.text:
+                        raw = part.text
+                        break
+        if not raw.strip():
+            raise ValueError("Gemini returned an empty response. Try again.")
 
-        # Strip markdown code fences if the model wraps them anyway
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-        if raw.endswith("```"):
-            raw = raw[:-3]
-        raw = raw.strip()
+        # ── Robust JSON extraction ─────────────────────────────────
+        # Gemini 2.5 Flash may wrap output in ```json ... ``` fences,
+        # or include thinking / preamble text before the JSON.
+        # Strategy: try raw first, then strip fences, then regex extract.
 
-        quiz = json.loads(raw)
+        def try_parse(s: str):
+            s = s.strip()
+            try:
+                return json.loads(s)
+            except json.JSONDecodeError:
+                return None
+
+        parsed = try_parse(raw)
+
+        if parsed is None:
+            # Strip markdown code fences
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            parsed = try_parse(cleaned)
+
+        if parsed is None:
+            # Last resort: find the first { ... } block via greedy regex
+            match = re.search(r"\{[\s\S]*\}", raw)
+            if match:
+                parsed = try_parse(match.group(0))
+
+        if parsed is None:
+            raise json.JSONDecodeError("No valid JSON found in response", raw, 0)
+
+        quiz = parsed
 
         # Validate required keys
         for key in ("question", "options", "correctAnswerIndex", "explanation"):

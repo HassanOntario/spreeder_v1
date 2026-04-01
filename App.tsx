@@ -243,11 +243,18 @@ export default function App() {
       lastQuizIndexRef.current = -1;
 
       const formData = new FormData();
-      formData.append("file", {
-        uri: file.uri,
-        name: file.name || "document.pdf",
-        type: file.mimeType || "application/pdf",
-      } as any);
+
+      if (Platform.OS === "web" && file.file) {
+        // On web, expo-document-picker provides a File object directly
+        formData.append("file", file.file as any);
+      } else {
+        // On native, use the URI-based approach
+        formData.append("file", {
+          uri: file.uri,
+          name: file.name || "document.pdf",
+          type: file.mimeType || "application/pdf",
+        } as any);
+      }
 
       const response = await fetch(`${BACKEND_URL}/upload`, {
         method: "POST",
@@ -268,9 +275,14 @@ export default function App() {
       setCurrentIndex(0);
       setIsPlaying(false);
     } catch (err: any) {
-      const message = err.message || "Something went wrong.";
+      const message =
+        typeof err === "string"
+          ? err
+          : err?.message || JSON.stringify(err) || "Something went wrong.";
       setError(message);
-      Alert.alert("Upload Error", message);
+      if (Platform.OS !== "web") {
+        Alert.alert("Upload Error", message);
+      }
     } finally {
       setIsLoading(false);
     }

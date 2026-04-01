@@ -14,9 +14,16 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from "react-native";
-import Slider from "@react-native-community/slider";
 import { COLORS, MIN_WPM, MAX_WPM, WPM_STEP } from "../config";
+
+// @react-native-community/slider doesn't support web — use a native
+// HTML range input on web, native Slider on iOS/Android.
+let NativeSlider: any = null;
+if (Platform.OS !== "web") {
+  NativeSlider = require("@react-native-community/slider").default;
+}
 
 interface ControlsProps {
   /** Whether words are loaded and ready to play. */
@@ -105,18 +112,37 @@ export default function Controls({
               <Text style={styles.stepBtnText}>−</Text>
             </TouchableOpacity>
 
-            {/* Slider */}
-            <Slider
-              style={styles.slider}
-              minimumValue={MIN_WPM}
-              maximumValue={MAX_WPM}
-              step={WPM_STEP}
-              value={wpm}
-              onValueChange={onWpmChange}
-              minimumTrackTintColor={COLORS.accent}
-              maximumTrackTintColor={COLORS.surface}
-              thumbTintColor={COLORS.accent}
-            />
+            {/* Slider — native on iOS/Android, HTML range on web */}
+            {Platform.OS === "web" ? (
+              <input
+                type="range"
+                min={MIN_WPM}
+                max={MAX_WPM}
+                step={WPM_STEP}
+                value={wpm}
+                onChange={(e: any) => onWpmChange(Number(e.target.value))}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  accentColor: COLORS.accent,
+                  cursor: "pointer",
+                } as any}
+              />
+            ) : (
+              NativeSlider && (
+                <NativeSlider
+                  style={styles.slider}
+                  minimumValue={MIN_WPM}
+                  maximumValue={MAX_WPM}
+                  step={WPM_STEP}
+                  value={wpm}
+                  onValueChange={onWpmChange}
+                  minimumTrackTintColor={COLORS.accent}
+                  maximumTrackTintColor={COLORS.surface}
+                  thumbTintColor={COLORS.accent}
+                />
+              )
+            )}
 
             {/* Plus button */}
             <TouchableOpacity

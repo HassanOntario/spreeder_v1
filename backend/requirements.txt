@@ -4,3 +4,5 @@ python-multipart==0.0.20
 python-dotenv==1.1.0
 PyMuPDF==1.25.5
 google-generativeai==0.8.6
+pytesseract==0.3.13
+Pillow==12.2.0
